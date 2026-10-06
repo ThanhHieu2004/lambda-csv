@@ -1,0 +1,106 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Serverless CSV Processing Pipeline using SAM
+
+Globals:
+  Function:
+    Runtime: python3.12
+    Timeout: 15
+
+    Environment:
+      Variables:
+        BUCKET_NAME: !Ref SupplierMasterBucket
+        JOB_TABLE_NAME: !Ref JobTable
+        EXPIRY_MINUTES: "15"
+        LOG_LEVEL: "INFO"
+    Tracing: Active
+    LoggingConfig:
+      LogFormat: JSON
+  Api:
+    TracingEnabled: true
+    Cors:
+      AllowMethods: "'OPTIONS,GET,POST'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      AllowOrigin: "'*'"
+Resources:
+  SupplierMasterBucket:
+    Type: AWS::S3::Bucket
+    Properties:
+      BucketName: !Sub "supplier-master-bucket-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ['*']
+            AllowedMethods: [PUT, GET, HEAD]
+            AllowedOrigins: ['*']
+
+  JobTable:
+    Type: AWS::Serverless::SimpleTable
+    Properties:
+      TableName: !Sub "job-table-${AWS::AccountId}-${AWS::Region}"
+      PrimaryKey:
+        Name: jobId
+        Type: String
+
+  ApiFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: api/                   
+      Handler: app.lambda_handler
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobTable
+        - S3CrudPolicy:
+            BucketName: !Ref SupplierMasterBucket
+      Events:
+        UploadPresign:
+          Type: Api
+          Properties:
+            Path: /uploads/presign
+            Method: post
+        GetJobStatus:
+          Type: Api
+          Properties:
+            Path: /jobs/{jobId}
+            Method: get
+
+  CsvProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      CodeUri: processor/             
+      Handler: app.lambda_handler
+      Timeout: 60
+      MemorySize: 512
+      Policies:
+        - DynamoDBCrudPolicy:
+            TableName: !Ref JobTable
+        - S3CrudPolicy:
+            BucketName: !Ref SupplierMasterBucket
+      Events:
+        CsvUploadTrigger:
+          Type: S3
+          Properties:
+            Bucket: !Ref SupplierMasterBucket
+            Events: s3:ObjectCreated:*
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: input/
+                  - Name: suffix
+                    Value: .csv
+     
+Outputs:
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL for Prod stage"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+  BucketName:
+    Description: "S3 Bucket Name"
+    Value: !Ref SupplierMasterBucket
+  JobTableName:
+    Description: "DynamoDB Table Name"
+    Value: !Ref JobTable
