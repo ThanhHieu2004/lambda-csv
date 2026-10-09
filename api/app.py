@@ -4,6 +4,7 @@ from typing import Any, Dict
 from config import config
 from utils.logger import setup_logger
 from utils.response import build_response, error_response, success_response
+from validators import validate_upload_payload
 
 logger = setup_logger(name="api-router", log_level=config.log_level)
 
@@ -14,10 +15,16 @@ def handle_upload_presign(event: Dict[str, Any]) -> Dict[str, Any]:
     except json.JSONDecodeError:
         return error_response(message="Invalid JSON body", status_code=400)
 
+    upload_request, error_message = validate_upload_payload(body)
+    if error_message:
+        return error_response(message=error_message, status_code=400)
+
     return success_response(
         {
-            "message": "Upload presign generated successfully", 
-            "received": body
+            "jobId": upload_request.job_id,
+            "objectKey": upload_request.s3_key,
+            "filename": upload_request.filename,
+            "message": "Validation passed."
         },
         status_code=200
     )
