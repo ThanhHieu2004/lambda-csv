@@ -5,6 +5,8 @@ from config import config
 from utils.logger import setup_logger
 from utils.response import build_response, error_response, success_response
 from validators import validate_upload_payload
+from services.s3_service import generate_upload_url
+from services.job_service import create_job
 
 logger = setup_logger(name="api-router", log_level=config.log_level)
 
@@ -19,12 +21,23 @@ def handle_upload_presign(event: Dict[str, Any]) -> Dict[str, Any]:
     if error_message:
         return error_response(message=error_message, status_code=400)
 
+    create_job(
+        job_id=upload_request.job_id,
+        object_key=upload_request.s3_key,
+        filename=upload_request.filename
+    )
+
+    upload_url, expiry_seconds = generate_upload_url(
+        object_key=upload_request.s3_key,
+        content_type=upload_request.content_type
+    )
+
     return success_response(
         {
             "jobId": upload_request.job_id,
             "objectKey": upload_request.s3_key,
-            "filename": upload_request.filename,
-            "message": "Validation passed."
+            "uploadUrl": upload_url,
+            "expirySeconds": expiry_seconds,
         },
         status_code=200
     )

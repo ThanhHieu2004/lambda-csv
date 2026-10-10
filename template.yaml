@@ -9,7 +9,7 @@ Globals:
 
     Environment:
       Variables:
-        BUCKET_NAME: !Ref SupplierMasterBucket
+        BUCKET_NAME: !Sub "supplier-master-bucket-${AWS::AccountId}-${AWS::Region}"
         JOB_TABLE_NAME: !Ref JobTable
         EXPIRY_MINUTES: "15"
         LOG_LEVEL: "INFO"
@@ -25,6 +25,7 @@ Globals:
 Resources:
   SupplierMasterBucket:
     Type: AWS::S3::Bucket
+    DependsOn: CsvProcessorPermission
     Properties:
       BucketName: !Sub "supplier-master-bucket-${AWS::AccountId}-${AWS::Region}"
       PublicAccessBlockConfiguration:
@@ -37,6 +38,15 @@ Resources:
           - AllowedHeaders: ['*']
             AllowedMethods: [PUT, GET, HEAD]
             AllowedOrigins: ['*']
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt CsvProcessorFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: uploads/ 
 
   JobTable:
     Type: AWS::Serverless::SimpleTable
@@ -55,7 +65,7 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref JobTable
         - S3CrudPolicy:
-            BucketName: !Ref SupplierMasterBucket
+            BucketName: !Sub "supplier-master-bucket-${AWS::AccountId}-${AWS::Region}"
       Events:
         UploadPresign:
           Type: Api
@@ -79,21 +89,17 @@ Resources:
         - DynamoDBCrudPolicy:
             TableName: !Ref JobTable
         - S3CrudPolicy:
-            BucketName: !Ref SupplierMasterBucket
-      Events:
-        CsvUploadTrigger:
-          Type: S3
-          Properties:
-            Bucket: !Ref SupplierMasterBucket
-            Events: s3:ObjectCreated:*
-            Filter:
-              S3Key:
-                Rules:
-                  - Name: prefix
-                    Value: input/
-                  - Name: suffix
-                    Value: .csv
-     
+            BucketName: !Sub "supplier-master-bucket-${AWS::AccountId}-${AWS::Region}"
+
+  CsvProcessorPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref CsvProcessorFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub "arn:aws:s3:::supplier-master-bucket-${AWS::AccountId}-${AWS::Region}"
+  
 Outputs:
   ApiEndpoint:
     Description: "API Gateway endpoint URL for Prod stage"
